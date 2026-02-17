@@ -33,7 +33,7 @@ A browser-based code editor with VS Code-style keyboard shortcuts, real-time eve
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/ganesh714/adv-code-editor
    cd code-editor
    ```
 
