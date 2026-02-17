@@ -1,0 +1,16 @@
+{
+  "name": "high-performance-code-editor",
+  "version": "1.0.0",
+  "description": "A VS Code-style code editor with advanced keyboard event handling",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "http-server src -p 3000 -c-1",
+    "dev": "http-server src -p 3000 -c-1"
+  },
+  "keywords": ["code-editor", "keyboard-events", "javascript"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}
