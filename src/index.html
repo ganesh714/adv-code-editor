@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>High-Performance Code Editor</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <header class="app-header">
+            <h1>High-Performance Code Editor</h1>
+            <div class="status-bar">
+                <span id="platform-info"></span>
+            </div>
+        </header>
+        
+        <main class="main-content">
+            <section class="editor-section" data-test-id="editor-container">
+                <div class="editor-header">
+                    <h2>Editor</h2>
+                    <div class="editor-actions">
+                        <button id="save-btn" class="action-btn">Save (Ctrl/Cmd+S)</button>
+                        <button id="undo-btn" class="action-btn">Undo (Ctrl/Cmd+Z)</button>
+                        <button id="redo-btn" class="action-btn">Redo (Ctrl/Cmd+Shift+Z)</button>
+                    </div>
+                </div>
+                <div class="editor-wrapper">
+                    <div class="line-numbers" id="line-numbers">1</div>
+                    <div 
+                        id="editor-input"
+                        class="editor-input" 
+                        data-test-id="editor-input"
+                        contenteditable="true"
+                        role="textbox"
+                        aria-multiline="true"
+                        spellcheck="false"
+                    ></div>
+                </div>
+            </section>
+
+            <section class="dashboard-section" data-test-id="event-dashboard">
+                <div class="dashboard-header">
+                    <h2>Event Debugging Dashboard</h2>
+                    <button id="clear-log-btn" class="action-btn">Clear Log</button>
+                </div>
+                <div class="event-log-container">
+                    <ul class="event-log-list" data-test-id="event-log-list" id="event-log-list"></ul>
+                </div>
+                <div class="stats-panel">
+                    <div class="stat-item">
+                        <span class="stat-label">Highlight Calls:</span>
+                        <span class="stat-value" id="highlight-count">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">History Size:</span>
+                        <span class="stat-value" id="history-size">1</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="editor.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
