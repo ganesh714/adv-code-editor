@@ -1,34 +1,18 @@
 /**
- * Main application entry point
- * Handles global keyboard shortcuts and initialization
+ * App Bootstrap — Initializes the CodeEditor and exposes verification APIs
  */
 
-class App {
-    constructor() {
-        this.init();
-    }
-
-    init() {
-        this.setupGlobalShortcuts();
-        this.logEnvironment();
-    }
-
-    setupGlobalShortcuts() {
-        // Prevent browser save dialog globally (outside editor too)
-        document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                e.preventDefault();
-            }
-        });
-    }
-
-    logEnvironment() {
-        console.log('[App] High-Performance Code Editor initialized');
-        console.log('[App] Platform:', navigator.platform);
-    }
-}
-
-// Initialize app when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    new App();
+    // Instantiate the editor
+    const editor = new CodeEditor();
+
+    // Expose verification functions on window for automated testing (CR6, CR10)
+    window.getEditorState = () => editor.getEditorState();
+    window.getHighlightCallCount = () => editor.getHighlightCallCount();
+
+    // Expose editor instance for debugging
+    window._editor = editor;
+
+    console.log('%c Code Editor Ready ', 'background: #6366f1; color: white; font-weight: bold; border-radius: 4px; padding: 4px 8px;');
+    console.log('Available APIs: window.getEditorState(), window.getHighlightCallCount()');
 });

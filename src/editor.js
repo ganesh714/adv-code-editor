@@ -1,617 +1,583 @@
 /**
- * High-Performance Code Editor
- * Core editor implementation with advanced keyboard event handling
+ * CodeEditor — High-Performance Code Editor with Advanced Keyboard Event Handling
  * 
- * Uses <textarea> for reliable cursor/selection management via
- * selectionStart/selectionEnd instead of contenteditable + Range API.
+ * Handles: undo/redo, shortcuts, IME composition, debounced highlighting,
+ * chord shortcuts, event logging, and cross-platform modifier support.
  */
 
 class CodeEditor {
     constructor() {
-        // DOM references
-        this.editor = document.getElementById('editor-input');
+        // DOM elements
+        this.editorInput = document.getElementById('editor-input');
+        this.eventLogList = document.getElementById('event-log-list');
         this.lineNumbers = document.getElementById('line-numbers');
-        this.eventLog = document.getElementById('event-log-list');
-        this.highlightCountEl = document.getElementById('highlight-count');
-        this.historySizeEl = document.getElementById('history-size');
-        this.eventCountEl = document.getElementById('event-count');
         this.chordIndicator = document.getElementById('chord-indicator');
         this.saveIndicator = document.getElementById('save-indicator');
-        this.imeIndicator = document.getElementById('ime-indicator');
+        this.historyCountEl = document.getElementById('history-count');
+        this.highlightCountEl = document.getElementById('highlight-count');
+        this.lineCountEl = document.getElementById('line-count');
+        this.cursorPositionEl = document.getElementById('cursor-position');
 
-        // State management
+        // State
         this.content = '';
-        this.undoStack = [''];       // Initial empty state
+        this.undoStack = [];
         this.redoStack = [];
-        this.highlightCallCount = 0;
-        this.eventLogCount = 0;
-        this.isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-
-        // IME composition state
         this.isComposing = false;
+        this.highlightCallCount = 0;
+        this.debounceTimer = null;
+        this.debounceDelay = 200; // ms
 
-        // Chord shortcut state
-        this.chordState = {
-            active: false,
-            timer: null,
-            firstKey: null
+        // Chord state
+        this.chordPending = false;
+        this.chordTimer = null;
+
+        // Push initial state
+        this.undoStack.push('');
+
+        // Init
+        this._bindEvents();
+        this._updateLineNumbers();
+        this._updateStats();
+    }
+
+    // ==========================================
+    // Event Binding
+    // ==========================================
+    _bindEvents() {
+        this.editorInput.addEventListener('keydown', this._onKeyDown.bind(this));
+        this.editorInput.addEventListener('keyup', this._onKeyUp.bind(this));
+        this.editorInput.addEventListener('input', this._onInput.bind(this));
+        this.editorInput.addEventListener('compositionstart', this._onCompositionStart.bind(this));
+        this.editorInput.addEventListener('compositionupdate', this._onCompositionUpdate.bind(this));
+        this.editorInput.addEventListener('compositionend', this._onCompositionEnd.bind(this));
+        this.editorInput.addEventListener('paste', this._onPaste.bind(this));
+
+        // Toolbar buttons
+        document.getElementById('btn-undo')?.addEventListener('click', () => this.undo());
+        document.getElementById('btn-redo')?.addEventListener('click', () => this.redo());
+        document.getElementById('btn-save')?.addEventListener('click', () => this._triggerSave());
+        document.getElementById('btn-clear-log')?.addEventListener('click', () => this.clearLog());
+    }
+
+    // ==========================================
+    // Helpers
+    // ==========================================
+    _isModifier(event) {
+        return event.ctrlKey || event.metaKey;
+    }
+
+    _getContent() {
+        return this.editorInput.innerText || '';
+    }
+
+    _setContent(text) {
+        this.editorInput.textContent = text;
+        this.content = text;
+        this._scheduleHighlight();
+        this._updateLineNumbers();
+        this._updateStats();
+    }
+
+    _pushHistory(text) {
+        // Only push if content actually changed
+        if (this.undoStack[this.undoStack.length - 1] !== text) {
+            this.undoStack.push(text);
+            this.redoStack = [];
+            this._updateStats();
+        }
+    }
+
+    _updateStats() {
+        const lines = (this.content || '').split('\n').length;
+        if (this.historyCountEl) this.historyCountEl.textContent = this.undoStack.length;
+        if (this.highlightCountEl) this.highlightCountEl.textContent = this.highlightCallCount;
+        if (this.lineCountEl) this.lineCountEl.textContent = lines;
+    }
+
+    _updateLineNumbers() {
+        const text = this._getContent();
+        const lineCount = text.split('\n').length || 1;
+        let html = '';
+        for (let i = 1; i <= lineCount; i++) {
+            html += `<span>${i}</span>`;
+        }
+        if (this.lineNumbers) this.lineNumbers.innerHTML = html;
+    }
+
+    // ==========================================
+    // Cursor / Selection Helpers for contenteditable
+    // ==========================================
+    _getCursorInfo() {
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return { line: 0, col: 0, pos: 0 };
+
+        const range = sel.getRangeAt(0);
+        const preRange = range.cloneRange();
+        preRange.selectNodeContents(this.editorInput);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        const pos = preRange.toString().length;
+
+        const textBefore = this._getContent().substring(0, pos);
+        const lines = textBefore.split('\n');
+        return {
+            line: lines.length - 1,
+            col: lines[lines.length - 1].length,
+            pos: pos
         };
-
-        // Debounce timer for syntax highlighting
-        this.highlightDebounceTimer = null;
-        this.DEBOUNCE_DELAY = 200; // ms
-
-        // Initialize
-        this.init();
     }
 
-    init() {
-        this.attachEventListeners();
-        this.updatePlatformInfo();
-        this.updateUI();
-        this.exposeGlobalFunctions();
+    _setCursorPosition(pos) {
+        const node = this.editorInput.firstChild;
+        if (!node) return;
+
+        const sel = window.getSelection();
+        const range = document.createRange();
+
+        // Walk through text nodes to find the right position
+        let currentPos = 0;
+        const walker = document.createTreeWalker(
+            this.editorInput,
+            NodeFilter.SHOW_TEXT,
+            null,
+            false
+        );
+
+        let textNode = walker.nextNode();
+        while (textNode) {
+            const nodeLen = textNode.textContent.length;
+            if (currentPos + nodeLen >= pos) {
+                range.setStart(textNode, pos - currentPos);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+                return;
+            }
+            currentPos += nodeLen;
+            textNode = walker.nextNode();
+        }
+
+        // If pos is beyond content, set to end
+        range.selectNodeContents(this.editorInput);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
     }
 
-    // ─────────────────────────────────────
-    // Event Listeners
-    // ─────────────────────────────────────
+    _getCurrentLineInfo() {
+        const content = this._getContent();
+        const cursorInfo = this._getCursorInfo();
+        const lines = content.split('\n');
+        const lineIndex = Math.min(cursorInfo.line, lines.length - 1);
+        const lineText = lines[lineIndex] || '';
 
-    attachEventListeners() {
-        // Core keyboard events
-        this.editor.addEventListener('keydown', this.handleKeyDown.bind(this));
-        this.editor.addEventListener('keyup', this.handleKeyUp.bind(this));
+        // Calculate line start position
+        let lineStartPos = 0;
+        for (let i = 0; i < lineIndex; i++) {
+            lineStartPos += lines[i].length + 1; // +1 for \n
+        }
 
-        // Input event for text changes (including paste)
-        this.editor.addEventListener('input', this.handleInput.bind(this));
-
-        // IME Composition events
-        this.editor.addEventListener('compositionstart', this.handleCompositionStart.bind(this));
-        this.editor.addEventListener('compositionupdate', this.handleCompositionUpdate.bind(this));
-        this.editor.addEventListener('compositionend', this.handleCompositionEnd.bind(this));
-
-        // Paste event logging
-        this.editor.addEventListener('paste', this.handlePaste.bind(this));
-
-        // UI Button handlers
-        document.getElementById('save-btn').addEventListener('click', () => this.triggerSave());
-        document.getElementById('undo-btn').addEventListener('click', () => this.undo());
-        document.getElementById('redo-btn').addEventListener('click', () => this.redo());
-        document.getElementById('clear-log-btn').addEventListener('click', () => this.clearEventLog());
-
-        // Sync line numbers on scroll
-        this.editor.addEventListener('scroll', () => {
-            this.lineNumbers.scrollTop = this.editor.scrollTop;
-        });
+        return {
+            lineIndex,
+            lineText,
+            lineStartPos,
+            col: cursorInfo.col,
+            pos: cursorInfo.pos,
+            lines
+        };
     }
 
-    // ─────────────────────────────────────
+    // ==========================================
     // Keyboard Event Handlers
-    // ─────────────────────────────────────
+    // ==========================================
+    _onKeyDown(event) {
+        // Log the event
+        this._logEvent('keydown', event);
 
-    handleKeyDown(event) {
-        const key = event.key;
-        const ctrlKey = event.ctrlKey;
-        const metaKey = event.metaKey;
-        const shiftKey = event.shiftKey;
-        // Support BOTH Ctrl and Meta for cross-platform (Req #11)
-        const isModifier = ctrlKey || metaKey;
-
-        // Log the keydown event
-        this.logEvent('keydown', key, event);
-
-        // ── Chord: check second key FIRST if chord is active ──
-        if (this.chordState.active && isModifier && key === 'c') {
-            event.preventDefault();
-            this.handleChordComplete();
-            return;
-        }
-
-        // Reset chord state on any non-chord key when chord is pending
-        if (this.chordState.active && !(key === 'Control' || key === 'Meta' || key === 'Shift')) {
-            this.resetChordState();
-        }
-
-        // ── Tab key for indentation ──
-        if (key === 'Tab') {
-            event.preventDefault();
-            this.handleTab(shiftKey);
-            return;
-        }
-
-        // ── Enter key with auto-indentation ──
-        if (key === 'Enter' && !isModifier) {
-            event.preventDefault();
-            this.handleEnter();
-            return;
-        }
-
-        // ── Shortcuts with modifier ──
-        if (isModifier) {
-            // Save: Ctrl/Cmd + S
-            if (key === 's') {
-                event.preventDefault();
-                this.triggerSave();
-                return;
-            }
-
-            // Redo: Ctrl/Cmd + Shift + Z  (check before Undo)
-            if (key === 'z' && shiftKey) {
-                event.preventDefault();
-                this.redo();
-                return;
-            }
-
-            // Undo: Ctrl/Cmd + Z
-            if (key === 'z' && !shiftKey) {
-                event.preventDefault();
-                this.undo();
-                return;
-            }
-
-            // Redo alternative: Ctrl/Cmd + Y
-            if (key === 'y') {
-                event.preventDefault();
-                this.redo();
-                return;
-            }
-
-            // Toggle comment: Ctrl/Cmd + /
-            if (key === '/') {
-                event.preventDefault();
-                this.toggleComment();
-                return;
-            }
-
-            // Chord start: Ctrl/Cmd + K
-            if (key === 'k') {
-                event.preventDefault();
-                this.handleChordStart('k');
-                return;
-            }
-        }
-    }
-
-    handleKeyUp(event) {
-        this.logEvent('keyup', event.key, event);
-    }
-
-    // ─────────────────────────────────────
-    // Input Handling
-    // ─────────────────────────────────────
-
-    handleInput(event) {
+        // Don't handle shortcuts during IME composition
         if (this.isComposing) return;
 
-        const newContent = this.editor.value;
+        const isMod = this._isModifier(event);
 
-        // Only record state if content actually changed
-        if (newContent !== this.content) {
-            this.content = newContent;
-            this.pushUndoState(this.content);
-            this.updateLineNumbers();
-            this.debouncedHighlight();
-        }
-
-        this.logEvent('input', event.inputType || 'text change', event);
-    }
-
-    handlePaste(event) {
-        this.logEvent('paste', 'content pasted', event);
-        // The 'input' event fires after paste and handles state saving
-    }
-
-    // ─────────────────────────────────────
-    // IME Composition
-    // ─────────────────────────────────────
-
-    handleCompositionStart(event) {
-        this.isComposing = true;
-        this.setIndicator(this.imeIndicator, 'warning');
-        this.logEvent('compositionstart', 'IME start', event);
-    }
-
-    handleCompositionUpdate(event) {
-        this.logEvent('compositionupdate', event.data || 'IME update', event);
-    }
-
-    handleCompositionEnd(event) {
-        this.isComposing = false;
-        this.setIndicator(this.imeIndicator, false);
-        this.logEvent('compositionend', event.data || 'IME end', event);
-
-        // Handle the final composed text
-        const newContent = this.editor.value;
-        if (newContent !== this.content) {
-            this.content = newContent;
-            this.pushUndoState(this.content);
-            this.updateLineNumbers();
-            this.debouncedHighlight();
-        }
-    }
-
-    // ─────────────────────────────────────
-    // Tab Indentation (Req #4)
-    // ─────────────────────────────────────
-
-    handleTab(shiftKey) {
-        const start = this.editor.selectionStart;
-        const end = this.editor.selectionEnd;
-        const value = this.editor.value;
-
-        // Find the start of the current line
-        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-        // Find the end of the current line
-        let lineEnd = value.indexOf('\n', start);
-        if (lineEnd === -1) lineEnd = value.length;
-
-        const currentLine = value.substring(lineStart, lineEnd);
-
-        if (shiftKey) {
-            // Outdent: remove up to 2 spaces from start of line
-            if (currentLine.startsWith('  ')) {
-                const newValue = value.substring(0, lineStart) + currentLine.substring(2) + value.substring(lineEnd);
-                this.editor.value = newValue;
-                // Adjust cursor
-                const newCursorPos = Math.max(lineStart, start - 2);
-                this.editor.selectionStart = newCursorPos;
-                this.editor.selectionEnd = newCursorPos;
-            }
-        } else {
-            // Indent: add 2 spaces at start of line
-            const newValue = value.substring(0, lineStart) + '  ' + currentLine + value.substring(lineEnd);
-            this.editor.value = newValue;
-            // Move cursor forward by 2
-            this.editor.selectionStart = start + 2;
-            this.editor.selectionEnd = start + 2;
-        }
-
-        this.content = this.editor.value;
-        this.pushUndoState(this.content);
-        this.updateLineNumbers();
-
-        // Focus MUST remain on editor
-        this.editor.focus();
-    }
-
-    // ─────────────────────────────────────
-    // Enter with Auto-Indentation (Req #5)
-    // ─────────────────────────────────────
-
-    handleEnter() {
-        const start = this.editor.selectionStart;
-        const end = this.editor.selectionEnd;
-        const value = this.editor.value;
-
-        // Find the start of the current line
-        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-        const lineEnd = value.indexOf('\n', start);
-        const currentLine = value.substring(lineStart, lineEnd === -1 ? value.length : lineEnd);
-
-        // Get the leading whitespace
-        const indentMatch = currentLine.match(/^(\s*)/);
-        const indentation = indentMatch ? indentMatch[1] : '';
-
-        // Insert newline + same indentation
-        const insertion = '\n' + indentation;
-        const newValue = value.substring(0, start) + insertion + value.substring(end);
-        this.editor.value = newValue;
-
-        // Place cursor after the indentation on the new line
-        const newCursorPos = start + insertion.length;
-        this.editor.selectionStart = newCursorPos;
-        this.editor.selectionEnd = newCursorPos;
-
-        this.content = this.editor.value;
-        this.pushUndoState(this.content);
-        this.updateLineNumbers();
-    }
-
-    // ─────────────────────────────────────
-    // Chord Shortcut (Req #8)
-    // ─────────────────────────────────────
-
-    handleChordStart(key) {
-        this.resetChordState();
-
-        this.chordState.active = true;
-        this.chordState.firstKey = key;
-
-        // Visual feedback
-        this.setIndicator(this.chordIndicator, 'warning');
-
-        // 2-second timeout
-        this.chordState.timer = setTimeout(() => {
-            this.resetChordState();
-            this.logEvent('action', 'Chord timed out', null);
-        }, 2000);
-
-        this.logEvent('action', 'Chord started: Ctrl/Cmd+K (waiting for Ctrl/Cmd+C)', null);
-    }
-
-    handleChordComplete() {
-        if (this.chordState.active) {
-            clearTimeout(this.chordState.timer);
-            this.setIndicator(this.chordIndicator, 'active');
-            this.logEvent('action', 'Action: Chord Success', null);
-
-            // Reset after a brief flash
-            setTimeout(() => {
-                this.setIndicator(this.chordIndicator, false);
-            }, 1500);
-
-            this.chordState.active = false;
-            this.chordState.firstKey = null;
-            this.chordState.timer = null;
-        }
-    }
-
-    resetChordState() {
-        if (this.chordState.timer) {
-            clearTimeout(this.chordState.timer);
-        }
-        this.chordState.active = false;
-        this.chordState.firstKey = null;
-        this.chordState.timer = null;
-        this.setIndicator(this.chordIndicator, false);
-    }
-
-    // ─────────────────────────────────────
-    // Save (Req #3)
-    // ─────────────────────────────────────
-
-    triggerSave() {
-        this.logEvent('action', 'Action: Save', null);
-
-        // Visual feedback
-        this.setIndicator(this.saveIndicator, 'active');
-        this.editor.classList.add('save-flash');
-        setTimeout(() => {
-            this.editor.classList.remove('save-flash');
-            // Keep save indicator active for a moment
-            setTimeout(() => {
-                this.setIndicator(this.saveIndicator, false);
-            }, 2000);
-        }, 600);
-    }
-
-    // ─────────────────────────────────────
-    // Toggle Comment (Req #7)
-    // ─────────────────────────────────────
-
-    toggleComment() {
-        const start = this.editor.selectionStart;
-        const end = this.editor.selectionEnd;
-        const value = this.editor.value;
-
-        // Find the start of the current line
-        const lineStart = value.lastIndexOf('\n', start - 1) + 1;
-        let lineEnd = value.indexOf('\n', start);
-        if (lineEnd === -1) lineEnd = value.length;
-
-        const currentLine = value.substring(lineStart, lineEnd);
-        const commentPrefix = '// ';
-
-        let newLine;
-        let cursorAdjust;
-
-        if (currentLine.startsWith(commentPrefix)) {
-            // Uncomment: remove "// "
-            newLine = currentLine.substring(commentPrefix.length);
-            cursorAdjust = -commentPrefix.length;
-        } else {
-            // Comment: add "// "
-            newLine = commentPrefix + currentLine;
-            cursorAdjust = commentPrefix.length;
-        }
-
-        const newValue = value.substring(0, lineStart) + newLine + value.substring(lineEnd);
-        this.editor.value = newValue;
-
-        // Adjust cursor position
-        const newCursorPos = Math.max(lineStart, start + cursorAdjust);
-        this.editor.selectionStart = newCursorPos;
-        this.editor.selectionEnd = newCursorPos;
-
-        this.content = this.editor.value;
-        this.pushUndoState(this.content);
-        this.updateLineNumbers();
-        this.logEvent('action', 'Toggle comment', null);
-    }
-
-    // ─────────────────────────────────────
-    // Undo/Redo State Management (Req #6)
-    // ─────────────────────────────────────
-
-    /**
-     * Push a new content state onto the undo stack.
-     * Clears the redo stack since a new action was taken.
-     */
-    pushUndoState(content) {
-        // Avoid duplicate consecutive states
-        if (this.undoStack.length > 0 && this.undoStack[this.undoStack.length - 1] === content) {
+        // --- Chord shortcut handling ---
+        if (this.chordPending && isMod && event.key === 'c') {
+            event.preventDefault();
+            this._chordSuccess();
             return;
         }
-        this.undoStack.push(content);
-        this.redoStack = [];
-        this.updateHistorySize();
+
+        if (this.chordPending && !(isMod && event.key === 'c')) {
+            // Any other key resets chord
+            if (event.key !== 'Control' && event.key !== 'Meta') {
+                this._resetChord();
+            }
+        }
+
+        // --- Ctrl+K — start chord ---
+        if (isMod && event.key === 'k') {
+            event.preventDefault();
+            this._startChord();
+            return;
+        }
+
+        // --- Ctrl+S — Save ---
+        if (isMod && event.key === 's') {
+            event.preventDefault();
+            this._triggerSave();
+            return;
+        }
+
+        // --- Ctrl+Z — Undo ---
+        if (isMod && !event.shiftKey && event.key === 'z') {
+            event.preventDefault();
+            this.undo();
+            return;
+        }
+
+        // --- Ctrl+Shift+Z — Redo ---
+        if (isMod && event.shiftKey && (event.key === 'z' || event.key === 'Z')) {
+            event.preventDefault();
+            this.redo();
+            return;
+        }
+
+        // --- Ctrl+/ — Toggle comment ---
+        if (isMod && event.key === '/') {
+            event.preventDefault();
+            this._toggleComment();
+            return;
+        }
+
+        // --- Tab — Indent ---
+        if (event.key === 'Tab' && !event.shiftKey) {
+            event.preventDefault();
+            this._indent();
+            return;
+        }
+
+        // --- Shift+Tab — Outdent ---
+        if (event.key === 'Tab' && event.shiftKey) {
+            event.preventDefault();
+            this._outdent();
+            return;
+        }
+
+        // --- Enter — Auto-indent ---
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            this._autoIndentEnter();
+            return;
+        }
+    }
+
+    _onKeyUp(event) {
+        this._logEvent('keyup', event);
+    }
+
+    // ==========================================
+    // Input Event (text changes, paste)
+    // ==========================================
+    _onInput(event) {
+        if (this.isComposing) return;
+
+        this._logInputEvent(event);
+
+        const newContent = this._getContent();
+        this.content = newContent;
+        this._pushHistory(newContent);
+        this._scheduleHighlight();
+        this._updateLineNumbers();
+        this._updateStats();
+    }
+
+    _onPaste(event) {
+        event.preventDefault();
+        const text = (event.clipboardData || window.clipboardData).getData('text/plain');
+        document.execCommand('insertText', false, text);
+    }
+
+    // ==========================================
+    // IME Composition Events
+    // ==========================================
+    _onCompositionStart(event) {
+        this.isComposing = true;
+        this._logCompositionEvent('compositionstart', event);
+    }
+
+    _onCompositionUpdate(event) {
+        this._logCompositionEvent('compositionupdate', event);
+    }
+
+    _onCompositionEnd(event) {
+        this.isComposing = false;
+        this._logCompositionEvent('compositionend', event);
+
+        // Process the final composed input
+        const newContent = this._getContent();
+        this.content = newContent;
+        this._pushHistory(newContent);
+        this._scheduleHighlight();
+        this._updateLineNumbers();
+        this._updateStats();
+    }
+
+    // ==========================================
+    // Editor Actions
+    // ==========================================
+    _triggerSave() {
+        this._logAction('Action: Save');
+
+        // Visual feedback
+        const indicator = this.saveIndicator;
+        if (indicator) {
+            indicator.classList.add('saving');
+            const statusText = indicator.querySelector('.status-text');
+            if (statusText) statusText.textContent = 'Saving...';
+
+            setTimeout(() => {
+                indicator.classList.remove('saving');
+                if (statusText) statusText.textContent = 'Saved';
+                setTimeout(() => {
+                    if (statusText) statusText.textContent = 'Ready';
+                }, 1500);
+            }, 500);
+        }
     }
 
     undo() {
-        if (this.undoStack.length > 1) {
-            const currentState = this.undoStack.pop();
-            this.redoStack.push(currentState);
+        if (this.undoStack.length <= 1) return;
 
-            const previousState = this.undoStack[this.undoStack.length - 1];
-            this.content = previousState;
-            this.editor.value = this.content;
+        const current = this.undoStack.pop();
+        this.redoStack.push(current);
+        const previous = this.undoStack[this.undoStack.length - 1];
 
-            this.updateUI();
-            this.logEvent('action', 'Undo performed', null);
-        }
+        this._setContent(previous);
+        this._setCursorPosition(previous.length);
+        this._logAction('Action: Undo');
     }
 
     redo() {
-        if (this.redoStack.length > 0) {
-            const nextState = this.redoStack.pop();
-            this.undoStack.push(nextState);
-            this.content = nextState;
-            this.editor.value = this.content;
+        if (this.redoStack.length === 0) return;
 
-            this.updateUI();
-            this.logEvent('action', 'Redo performed', null);
+        const next = this.redoStack.pop();
+        this.undoStack.push(next);
+
+        this._setContent(next);
+        this._setCursorPosition(next.length);
+        this._logAction('Action: Redo');
+    }
+
+    _indent() {
+        const info = this._getCurrentLineInfo();
+        const lines = info.lines;
+        lines[info.lineIndex] = '  ' + lines[info.lineIndex];
+        const newContent = lines.join('\n');
+
+        this._setContent(newContent);
+        this.content = newContent;
+        this._pushHistory(newContent);
+
+        // Restore cursor position (shifted by 2)
+        this._setCursorPosition(info.pos + 2);
+    }
+
+    _outdent() {
+        const info = this._getCurrentLineInfo();
+        const lines = info.lines;
+        const currentLine = lines[info.lineIndex];
+
+        if (currentLine.startsWith('  ')) {
+            lines[info.lineIndex] = currentLine.substring(2);
+            const newContent = lines.join('\n');
+
+            this._setContent(newContent);
+            this.content = newContent;
+            this._pushHistory(newContent);
+
+            // Restore cursor position (shifted back by 2)
+            this._setCursorPosition(Math.max(info.pos - 2, info.lineStartPos));
         }
     }
 
-    // ─────────────────────────────────────
-    // Debounced Syntax Highlighting (Req #10)
-    // ─────────────────────────────────────
+    _toggleComment() {
+        const info = this._getCurrentLineInfo();
+        const lines = info.lines;
+        const currentLine = lines[info.lineIndex];
 
-    debouncedHighlight() {
-        clearTimeout(this.highlightDebounceTimer);
-        this.highlightDebounceTimer = setTimeout(() => {
-            this.performHighlight();
-        }, this.DEBOUNCE_DELAY);
-    }
-
-    performHighlight() {
-        this.highlightCallCount++;
-        this.highlightCountEl.textContent = this.highlightCallCount;
-        // In a real editor, this would apply syntax highlighting tokens
-        console.log(`[Editor] Syntax highlighting #${this.highlightCallCount}`);
-    }
-
-    // ─────────────────────────────────────
-    // UI Updates
-    // ─────────────────────────────────────
-
-    updateLineNumbers() {
-        const content = this.editor.value;
-        const lineCount = content.split('\n').length;
-        let html = '';
-        for (let i = 1; i <= lineCount; i++) {
-            html += i + '\n';
-        }
-        this.lineNumbers.textContent = html;
-    }
-
-    updateUI() {
-        this.updateLineNumbers();
-        this.updateHistorySize();
-    }
-
-    updateHistorySize() {
-        this.historySizeEl.textContent = this.undoStack.length;
-    }
-
-    updatePlatformInfo() {
-        const platformInfo = document.getElementById('platform-info');
-        if (this.isMac) {
-            platformInfo.textContent = '⌘ macOS';
+        if (currentLine.startsWith('// ')) {
+            // Remove comment
+            lines[info.lineIndex] = currentLine.substring(3);
+            const newContent = lines.join('\n');
+            this._setContent(newContent);
+            this.content = newContent;
+            this._pushHistory(newContent);
+            this._setCursorPosition(Math.max(info.pos - 3, info.lineStartPos));
         } else {
-            platformInfo.textContent = '⌃ Windows/Linux';
+            // Add comment
+            lines[info.lineIndex] = '// ' + currentLine;
+            const newContent = lines.join('\n');
+            this._setContent(newContent);
+            this.content = newContent;
+            this._pushHistory(newContent);
+            this._setCursorPosition(info.pos + 3);
+        }
+
+        this._logAction('Action: Toggle Comment');
+    }
+
+    _autoIndentEnter() {
+        const info = this._getCurrentLineInfo();
+        const currentLine = info.lines[info.lineIndex];
+
+        // Detect leading whitespace
+        const match = currentLine.match(/^(\s*)/);
+        const indent = match ? match[1] : '';
+
+        // Insert newline + same indentation
+        const before = this._getContent().substring(0, info.pos);
+        const after = this._getContent().substring(info.pos);
+        const newContent = before + '\n' + indent + after;
+
+        this._setContent(newContent);
+        this.content = newContent;
+        this._pushHistory(newContent);
+
+        // Place cursor after the indentation on the new line
+        this._setCursorPosition(info.pos + 1 + indent.length);
+    }
+
+    // ==========================================
+    // Chord Shortcut (Ctrl+K, Ctrl+C)
+    // ==========================================
+    _startChord() {
+        this.chordPending = true;
+        if (this.chordIndicator) {
+            this.chordIndicator.textContent = 'Ctrl+K pressed — waiting for next key...';
+        }
+
+        this.chordTimer = setTimeout(() => {
+            this._resetChord();
+        }, 2000);
+
+        this._logAction('Chord: Ctrl+K pressed (waiting...)');
+    }
+
+    _chordSuccess() {
+        clearTimeout(this.chordTimer);
+        this.chordPending = false;
+        if (this.chordIndicator) {
+            this.chordIndicator.textContent = '';
+        }
+        this._logAction('Action: Chord Success');
+    }
+
+    _resetChord() {
+        clearTimeout(this.chordTimer);
+        this.chordPending = false;
+        if (this.chordIndicator) {
+            this.chordIndicator.textContent = '';
         }
     }
 
-    setIndicator(el, state) {
-        if (!el) return;
-        el.classList.remove('active', 'warning');
-        if (state === 'active') {
-            el.classList.add('active');
-        } else if (state === 'warning') {
-            el.classList.add('warning');
+    // ==========================================
+    // Debounced Syntax Highlighting
+    // ==========================================
+    _scheduleHighlight() {
+        if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
         }
+        this.debounceTimer = setTimeout(() => {
+            this._performHighlight();
+        }, this.debounceDelay);
     }
 
-    // ─────────────────────────────────────
-    // Event Logging (Req #2)
-    // ─────────────────────────────────────
+    _performHighlight() {
+        // Simulated expensive syntax highlighting operation
+        this.highlightCallCount++;
+        this._updateStats();
+    }
 
-    logEvent(type, key, event) {
-        const entry = document.createElement('li');
-        entry.className = 'event-log-item';
+    // ==========================================
+    // Event Logging
+    // ==========================================
+    _logEvent(type, event) {
+        const modifiers = [];
+        if (event.ctrlKey) modifiers.push('Ctrl');
+        if (event.metaKey) modifiers.push('Cmd');
+        if (event.shiftKey) modifiers.push('Shift');
+        if (event.altKey) modifiers.push('Alt');
+
+        const modStr = modifiers.length > 0 ? `[${modifiers.join('+')}] ` : '';
+        const detail = `${modStr}key=<span class="key-name">${this._escapeHtml(event.key)}</span> code=${this._escapeHtml(event.code)}`;
+
+        this._addLogEntry(type, detail);
+    }
+
+    _logInputEvent(event) {
+        const detail = `inputType=${event.inputType || 'unknown'} data=<span class="key-name">${this._escapeHtml(event.data || '')}</span>`;
+        this._addLogEntry('input', detail);
+    }
+
+    _logCompositionEvent(type, event) {
+        const detail = `data=<span class="key-name">${this._escapeHtml(event.data || '')}</span>`;
+        this._addLogEntry(type, detail);
+    }
+
+    _logAction(message) {
+        this._addLogEntry('action', `<span class="key-name">${this._escapeHtml(message)}</span>`);
+    }
+
+    _addLogEntry(type, detailHtml) {
+        const entry = document.createElement('div');
+        entry.className = 'event-entry';
         entry.setAttribute('data-test-id', 'event-log-entry');
-        entry.setAttribute('data-event-type', type);
 
-        const timestamp = new Date().toLocaleTimeString('en-US', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            fractionalSecondDigits: 3
-        });
+        const badgeClass = type.startsWith('composition') ? 'composition' : type;
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
 
-        // Build modifier string
-        let details = '';
-        if (event && event instanceof Event) {
-            const modifiers = [];
-            if (event.ctrlKey) modifiers.push('Ctrl');
-            if (event.metaKey) modifiers.push('⌘');
-            if (event.shiftKey) modifiers.push('Shift');
-            if (event.altKey) modifiers.push('Alt');
-            if (modifiers.length > 0) {
-                details = ` [${modifiers.join('+')}]`;
-            }
+        entry.innerHTML = `
+            <span class="event-time">${timeStr}</span>
+            <span class="event-badge ${badgeClass}">${this._escapeHtml(type)}</span>
+            <span class="event-detail">${detailHtml}</span>
+        `;
+
+        // Add to top of list (newest first)
+        if (this.eventLogList.firstChild) {
+            this.eventLogList.insertBefore(entry, this.eventLogList.firstChild);
+        } else {
+            this.eventLogList.appendChild(entry);
         }
 
-        // Always include the event type in the text (Req #2 verification)
-        entry.textContent = `[${timestamp}] ${type}: ${key}${details}`;
-
-        this.eventLog.appendChild(entry);
-
-        // Auto-scroll to bottom
-        const container = this.eventLog.parentElement;
-        if (container) {
-            container.scrollTop = container.scrollHeight;
-        }
-
-        // Update event count
-        this.eventLogCount++;
-        if (this.eventCountEl) {
-            this.eventCountEl.textContent = this.eventLogCount;
-        }
-
-        // Limit log entries to prevent memory issues
-        while (this.eventLog.children.length > 200) {
-            this.eventLog.removeChild(this.eventLog.firstChild);
+        // Cap log entries at 200
+        while (this.eventLogList.children.length > 200) {
+            this.eventLogList.removeChild(this.eventLogList.lastChild);
         }
     }
 
-    clearEventLog() {
-        this.eventLog.innerHTML = '';
-        this.eventLogCount = 0;
-        if (this.eventCountEl) {
-            this.eventCountEl.textContent = '0';
+    _escapeHtml(str) {
+        if (typeof str !== 'string') return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    clearLog() {
+        if (this.eventLogList) {
+            this.eventLogList.innerHTML = '';
         }
     }
 
-    // ─────────────────────────────────────
-    // Global Function Exposure (Req #6, #10)
-    // ─────────────────────────────────────
-
-    exposeGlobalFunctions() {
-        /**
-         * Returns { content: string, historySize: number }
-         */
-        window.getEditorState = () => {
-            return {
-                content: this.editor.value,
-                historySize: this.undoStack.length
-            };
+    // ==========================================
+    // Public API (exposed on window)
+    // ==========================================
+    getEditorState() {
+        return {
+            content: this._getContent(),
+            historySize: this.undoStack.length
         };
+    }
 
-        /**
-         * Returns the number of times syntax highlighting has been executed.
-         */
-        window.getHighlightCallCount = () => {
-            return this.highlightCallCount;
-        };
-
-        // Expose editor instance for debugging
-        window.editor = this;
+    getHighlightCallCount() {
+        return this.highlightCallCount;
     }
 }
-
-// Initialize editor when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    new CodeEditor();
-});

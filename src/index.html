@@ -1,138 +1,166 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="A high-performance, browser-based code editor with VS Code-style keyboard shortcuts, real-time event debugging, and advanced state management.">
-    <title>High-Performance Code Editor</title>
+    <meta name="description"
+        content="High-Performance Code Editor with VS Code-style keyboard shortcuts and real-time event debugging">
+    <title>Code Editor — Advanced Keyboard Handling</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
-    <div class="app-container">
-        <!-- Ambient background orbs -->
-        <div class="bg-orb bg-orb-1"></div>
-        <div class="bg-orb bg-orb-2"></div>
-        <div class="bg-orb bg-orb-3"></div>
+    <!-- Ambient Background -->
+    <div class="ambient-bg">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
 
-        <header class="app-header">
-            <div class="header-left">
-                <div class="logo-icon">⚡</div>
-                <h1>Code Editor</h1>
+    <!-- Header -->
+    <header class="app-header">
+        <div class="header-left">
+            <div class="logo">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <rect width="28" height="28" rx="6" fill="url(#logoGrad)" />
+                    <path d="M8 10L12 14L8 18" stroke="white" stroke-width="2" stroke-linecap="round"
+                        stroke-linejoin="round" />
+                    <line x1="14" y1="18" x2="20" y2="18" stroke="white" stroke-width="2" stroke-linecap="round" />
+                    <defs>
+                        <linearGradient id="logoGrad" x1="0" y1="0" x2="28" y2="28">
+                            <stop stop-color="#6366f1" />
+                            <stop offset="1" stop-color="#8b5cf6" />
+                        </linearGradient>
+                    </defs>
+                </svg>
             </div>
-            <div class="header-center">
-                <div class="status-indicators">
-                    <span class="indicator" id="chord-indicator" title="Chord mode">
-                        <span class="indicator-dot"></span>
-                        <span class="indicator-label">Chord</span>
-                    </span>
-                    <span class="indicator" id="save-indicator" title="Save status">
-                        <span class="indicator-dot"></span>
-                        <span class="indicator-label">Saved</span>
-                    </span>
-                    <span class="indicator" id="ime-indicator" title="IME status">
-                        <span class="indicator-dot"></span>
-                        <span class="indicator-label">IME</span>
-                    </span>
+            <h1 class="app-title">Code Editor</h1>
+            <span class="app-badge">v1.0</span>
+        </div>
+        <div class="header-right">
+            <div class="status-indicator" id="save-indicator">
+                <span class="status-dot"></span>
+                <span class="status-text">Ready</span>
+            </div>
+            <div class="stats-panel">
+                <div class="stat" id="stat-history">
+                    <span class="stat-label">History</span>
+                    <span class="stat-value" id="history-count">1</span>
+                </div>
+                <div class="stat" id="stat-highlights">
+                    <span class="stat-label">Highlights</span>
+                    <span class="stat-value" id="highlight-count">0</span>
+                </div>
+                <div class="stat" id="stat-lines">
+                    <span class="stat-label">Lines</span>
+                    <span class="stat-value" id="line-count">1</span>
                 </div>
             </div>
-            <div class="header-right">
-                <span id="platform-info" class="platform-badge"></span>
-            </div>
-        </header>
+        </div>
+    </header>
 
-        <main class="main-content">
-            <!-- Editor Section -->
-            <section class="editor-section glass-panel" data-test-id="editor-container">
-                <div class="panel-header">
-                    <div class="panel-title">
-                        <span class="panel-icon">📝</span>
-                        <h2>Editor</h2>
-                    </div>
-                    <div class="editor-actions">
-                        <button id="save-btn" class="action-btn" title="Save (Ctrl/Cmd+S)">
-                            <span class="btn-icon">💾</span> Save
-                        </button>
-                        <button id="undo-btn" class="action-btn" title="Undo (Ctrl/Cmd+Z)">
-                            <span class="btn-icon">↩️</span> Undo
-                        </button>
-                        <button id="redo-btn" class="action-btn" title="Redo (Ctrl/Cmd+Shift+Z)">
-                            <span class="btn-icon">↪️</span> Redo
-                        </button>
+    <!-- Main Layout -->
+    <main class="app-main">
+        <!-- Editor Pane -->
+        <section class="editor-pane" data-test-id="editor-container">
+            <div class="pane-header">
+                <div class="pane-tabs">
+                    <div class="pane-tab active">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+                            <polyline points="13 2 13 9 20 9" />
+                        </svg>
+                        <span>untitled.js</span>
                     </div>
                 </div>
-                <div class="editor-wrapper">
-                    <div class="line-numbers" id="line-numbers">1</div>
-                    <textarea
-                        id="editor-input"
-                        class="editor-input"
-                        data-test-id="editor-input"
-                        role="textbox"
-                        aria-multiline="true"
-                        aria-label="Code editor input"
-                        spellcheck="false"
-                        autocomplete="off"
-                        autocapitalize="off"
-                        placeholder="Start typing your code here..."
-                    ></textarea>
-                </div>
-            </section>
-
-            <!-- Event Dashboard Section -->
-            <section class="dashboard-section glass-panel" data-test-id="event-dashboard">
-                <div class="panel-header">
-                    <div class="panel-title">
-                        <span class="panel-icon">📊</span>
-                        <h2>Event Dashboard</h2>
-                    </div>
-                    <button id="clear-log-btn" class="action-btn action-btn-danger" title="Clear all logs">
-                        <span class="btn-icon">🗑️</span> Clear
+                <div class="pane-actions">
+                    <button class="pane-btn" id="btn-undo" title="Undo (Ctrl+Z)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="1 4 1 10 7 10" />
+                            <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                        </svg>
+                    </button>
+                    <button class="pane-btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="23 4 23 10 17 10" />
+                            <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+                        </svg>
+                    </button>
+                    <button class="pane-btn" id="btn-save" title="Save (Ctrl+S)">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                            <polyline points="17 21 17 13 7 13 7 21" />
+                            <polyline points="7 3 7 8 15 8" />
+                        </svg>
                     </button>
                 </div>
-                <div class="event-log-container">
-                    <ul class="event-log-list" data-test-id="event-log-list" id="event-log-list"></ul>
-                </div>
-                <div class="stats-panel">
-                    <div class="stat-item">
-                        <span class="stat-icon">🎨</span>
-                        <div class="stat-content">
-                            <span class="stat-label">Highlight Calls</span>
-                            <span class="stat-value" id="highlight-count">0</span>
-                        </div>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-icon">📚</span>
-                        <div class="stat-content">
-                            <span class="stat-label">History Size</span>
-                            <span class="stat-value" id="history-size">1</span>
-                        </div>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-icon">📋</span>
-                        <div class="stat-content">
-                            <span class="stat-label">Events Logged</span>
-                            <span class="stat-value" id="event-count">0</span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-        </main>
-
-        <footer class="app-footer">
-            <div class="shortcut-hints">
-                <kbd>Ctrl/⌘+S</kbd> Save
-                <kbd>Ctrl/⌘+Z</kbd> Undo
-                <kbd>Ctrl/⌘+⇧+Z</kbd> Redo
-                <kbd>Tab</kbd> Indent
-                <kbd>Ctrl/⌘+/</kbd> Comment
-                <kbd>Ctrl/⌘+K,C</kbd> Chord
             </div>
-        </footer>
+            <div class="editor-body">
+                <div class="line-numbers" id="line-numbers">
+                    <span>1</span>
+                </div>
+                <div class="editor-input" data-test-id="editor-input" id="editor-input" contenteditable="true"
+                    role="textbox" aria-multiline="true" aria-label="Code Editor" spellcheck="false" autocorrect="off"
+                    autocapitalize="off"></div>
+            </div>
+            <div class="editor-footer">
+                <span class="footer-item" id="cursor-position">Ln 1, Col 1</span>
+                <span class="footer-item">JavaScript</span>
+                <span class="footer-item">UTF-8</span>
+                <span class="footer-item chord-indicator" id="chord-indicator"></span>
+            </div>
+        </section>
+
+        <!-- Event Dashboard -->
+        <section class="dashboard-pane" data-test-id="event-dashboard">
+            <div class="pane-header">
+                <div class="pane-tabs">
+                    <div class="pane-tab active">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+                        </svg>
+                        <span>Event Log</span>
+                    </div>
+                </div>
+                <div class="pane-actions">
+                    <button class="pane-btn" id="btn-clear-log" title="Clear Log">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <div class="dashboard-body" data-test-id="event-log-list" id="event-log-list">
+                <!-- Event entries will be added here dynamically -->
+            </div>
+        </section>
+    </main>
+
+    <!-- Keyboard Shortcuts Overlay -->
+    <div class="shortcuts-hint" id="shortcuts-hint">
+        <span>Ctrl+S Save</span>
+        <span>Ctrl+Z Undo</span>
+        <span>Ctrl+Shift+Z Redo</span>
+        <span>Tab Indent</span>
+        <span>Ctrl+/ Comment</span>
+        <span>Ctrl+K,C Chord</span>
     </div>
 
     <script src="editor.js"></script>
     <script src="app.js"></script>
 </body>
+
 </html>
