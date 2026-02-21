@@ -1,34 +1,34 @@
 /**
  * Main application entry point
- * Handles additional UI interactions and initialization
+ * Handles global keyboard shortcuts and initialization
  */
 
 class App {
     constructor() {
         this.init();
     }
-    
+
     init() {
-        this.setupKeyboardShortcuts();
-        this.checkEnvironment();
+        this.setupGlobalShortcuts();
+        this.logEnvironment();
     }
-    
-    setupKeyboardShortcuts() {
-        // Global keyboard shortcuts (non-editor)
+
+    setupGlobalShortcuts() {
+        // Prevent browser save dialog globally (outside editor too)
         document.addEventListener('keydown', (e) => {
-            // Prevent browser save dialog globally
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
                 e.preventDefault();
             }
         });
     }
-    
-    checkEnvironment() {
-        // Log environment info
-        console.log('Environment:', process.env.NODE_ENV || 'development');
-        console.log('Port:', process.env.APP_PORT || 3000);
+
+    logEnvironment() {
+        console.log('[App] High-Performance Code Editor initialized');
+        console.log('[App] Platform:', navigator.platform);
     }
 }
 
-// Initialize app
-new App();
+// Initialize app when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    new App();
+});
