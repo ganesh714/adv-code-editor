@@ -3,62 +3,133 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A high-performance, browser-based code editor with VS Code-style keyboard shortcuts, real-time event debugging, and advanced state management.">
     <title>High-Performance Code Editor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
     <div class="app-container">
+        <!-- Ambient background orbs -->
+        <div class="bg-orb bg-orb-1"></div>
+        <div class="bg-orb bg-orb-2"></div>
+        <div class="bg-orb bg-orb-3"></div>
+
         <header class="app-header">
-            <h1>High-Performance Code Editor</h1>
-            <div class="status-bar">
-                <span id="platform-info"></span>
+            <div class="header-left">
+                <div class="logo-icon">⚡</div>
+                <h1>Code Editor</h1>
+            </div>
+            <div class="header-center">
+                <div class="status-indicators">
+                    <span class="indicator" id="chord-indicator" title="Chord mode">
+                        <span class="indicator-dot"></span>
+                        <span class="indicator-label">Chord</span>
+                    </span>
+                    <span class="indicator" id="save-indicator" title="Save status">
+                        <span class="indicator-dot"></span>
+                        <span class="indicator-label">Saved</span>
+                    </span>
+                    <span class="indicator" id="ime-indicator" title="IME status">
+                        <span class="indicator-dot"></span>
+                        <span class="indicator-label">IME</span>
+                    </span>
+                </div>
+            </div>
+            <div class="header-right">
+                <span id="platform-info" class="platform-badge"></span>
             </div>
         </header>
-        
+
         <main class="main-content">
-            <section class="editor-section" data-test-id="editor-container">
-                <div class="editor-header">
-                    <h2>Editor</h2>
+            <!-- Editor Section -->
+            <section class="editor-section glass-panel" data-test-id="editor-container">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span class="panel-icon">📝</span>
+                        <h2>Editor</h2>
+                    </div>
                     <div class="editor-actions">
-                        <button id="save-btn" class="action-btn">Save (Ctrl/Cmd+S)</button>
-                        <button id="undo-btn" class="action-btn">Undo (Ctrl/Cmd+Z)</button>
-                        <button id="redo-btn" class="action-btn">Redo (Ctrl/Cmd+Shift+Z)</button>
+                        <button id="save-btn" class="action-btn" title="Save (Ctrl/Cmd+S)">
+                            <span class="btn-icon">💾</span> Save
+                        </button>
+                        <button id="undo-btn" class="action-btn" title="Undo (Ctrl/Cmd+Z)">
+                            <span class="btn-icon">↩️</span> Undo
+                        </button>
+                        <button id="redo-btn" class="action-btn" title="Redo (Ctrl/Cmd+Shift+Z)">
+                            <span class="btn-icon">↪️</span> Redo
+                        </button>
                     </div>
                 </div>
                 <div class="editor-wrapper">
                     <div class="line-numbers" id="line-numbers">1</div>
-                    <div 
+                    <textarea
                         id="editor-input"
-                        class="editor-input" 
+                        class="editor-input"
                         data-test-id="editor-input"
-                        contenteditable="true"
                         role="textbox"
                         aria-multiline="true"
+                        aria-label="Code editor input"
                         spellcheck="false"
-                    ></div>
+                        autocomplete="off"
+                        autocapitalize="off"
+                        placeholder="Start typing your code here..."
+                    ></textarea>
                 </div>
             </section>
 
-            <section class="dashboard-section" data-test-id="event-dashboard">
-                <div class="dashboard-header">
-                    <h2>Event Debugging Dashboard</h2>
-                    <button id="clear-log-btn" class="action-btn">Clear Log</button>
+            <!-- Event Dashboard Section -->
+            <section class="dashboard-section glass-panel" data-test-id="event-dashboard">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <span class="panel-icon">📊</span>
+                        <h2>Event Dashboard</h2>
+                    </div>
+                    <button id="clear-log-btn" class="action-btn action-btn-danger" title="Clear all logs">
+                        <span class="btn-icon">🗑️</span> Clear
+                    </button>
                 </div>
                 <div class="event-log-container">
                     <ul class="event-log-list" data-test-id="event-log-list" id="event-log-list"></ul>
                 </div>
                 <div class="stats-panel">
                     <div class="stat-item">
-                        <span class="stat-label">Highlight Calls:</span>
-                        <span class="stat-value" id="highlight-count">0</span>
+                        <span class="stat-icon">🎨</span>
+                        <div class="stat-content">
+                            <span class="stat-label">Highlight Calls</span>
+                            <span class="stat-value" id="highlight-count">0</span>
+                        </div>
                     </div>
                     <div class="stat-item">
-                        <span class="stat-label">History Size:</span>
-                        <span class="stat-value" id="history-size">1</span>
+                        <span class="stat-icon">📚</span>
+                        <div class="stat-content">
+                            <span class="stat-label">History Size</span>
+                            <span class="stat-value" id="history-size">1</span>
+                        </div>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-icon">📋</span>
+                        <div class="stat-content">
+                            <span class="stat-label">Events Logged</span>
+                            <span class="stat-value" id="event-count">0</span>
+                        </div>
                     </div>
                 </div>
             </section>
         </main>
+
+        <footer class="app-footer">
+            <div class="shortcut-hints">
+                <kbd>Ctrl/⌘+S</kbd> Save
+                <kbd>Ctrl/⌘+Z</kbd> Undo
+                <kbd>Ctrl/⌘+⇧+Z</kbd> Redo
+                <kbd>Tab</kbd> Indent
+                <kbd>Ctrl/⌘+/</kbd> Comment
+                <kbd>Ctrl/⌘+K,C</kbd> Chord
+            </div>
+        </footer>
     </div>
 
     <script src="editor.js"></script>
